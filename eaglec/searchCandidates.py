@@ -140,7 +140,7 @@ def iter_csr_tiles(M, tile_size=2048, k=21, exp=None, upper_triangular_only=Fals
                 rr0, rr1, cc0, cc1,
             )
 
-def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra,expected_inter,
+def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra, expected_inter,
                                 balance, base_fcn, tile_size=2048, k=21, cutoff=0.3):
     
     candidates = {}
