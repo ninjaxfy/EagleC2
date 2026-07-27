@@ -121,7 +121,7 @@ def run():
             #logger.info('Visible devices: {0}'.format(tf.config.get_visible_devices('GPU')))
 
         import cooler, time, tempfile, joblib
-        from eaglec.utilities import calculate_expected_intra, calculate_expected_intra, load_gap
+        from eaglec.utilities import calculate_expected_intra, calculate_expected_inter, load_gap
         from eaglec.searchCandidates import collect_candidate_patches, iter_cooler_scan_candidates
         from eaglec.predictCore import load_ensemble_models, load_fcn_model, predict, refine_predictions
 
@@ -166,7 +166,7 @@ def run():
             logger.info('  Resolution {0}'.format(res))
             max_bins = max(200, 2000000//res)
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
-            expected_values_intra[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
+            expected_values_intra[res] = calculate_expected_intra(clr, chroms, balance, max_bins, nproc=args.nproc)
             expected_values_inter[res] = calculate_expected_inter(clr, chroms, balance, nproc=args.nproc)
         joblib.dump(expected_values_intra, os.path.join(cache_folder, 'expected_values_intra.pkl'))
         joblib.dump(expected_values_inter, os.path.join(cache_folder, 'expected_values_inter.pkl'))
