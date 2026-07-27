@@ -196,6 +196,7 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra,e
     
     return candidates, count
 
+
 def extract_centered_patch_from_matrix(M, center_i, center_j, radius=15, exp=None,
                                        pad_value=0.0):
     """
@@ -209,8 +210,8 @@ def extract_centered_patch_from_matrix(M, center_i, center_j, radius=15, exp=Non
         Absolute bin coordinates within M.
     radius : int
         Patch radius. radius=15 gives a 31x31 patch.
-    exp : 1D np.ndarray or None
-        Expected vector for cis matrices. None for trans.
+    exp : scalar or 1D np.ndarray
+          Expected value used for block normalization.
     pad_value : float
         Value used when patch crosses chromosome boundary.
 
@@ -232,10 +233,7 @@ def extract_centered_patch_from_matrix(M, center_i, center_j, radius=15, exp=Non
     block = M[r0:r1, c0:c1].toarray().astype(np.float32, copy=False)
     block = np.nan_to_num(block, nan=0.0, posinf=0.0, neginf=0.0)
 
-    if not exp is None:
-        block = distance_normalize_block(block, exp, r0, c0)
-
-    block = image_normalize(block)
+    block = block_normalize(block, exp, r0, c0)
 
     out = np.full((out_size, out_size), pad_value, dtype=np.float32)
 
@@ -251,7 +249,7 @@ def check_sparsity(patch, margin=5, min_nonzero=10):
 
     return np.count_nonzero(sub) >= min_nonzero
 
-def collect_candidate_patches(cool_path, candidates, expected_values, out_dir,
+def collect_candidate_patches(cool_path, candidates, expected_intra,expected_inter, out_dir,
                               balance, radius=15, chunk_size=10000):
     """
     Re-extract centered patches from full chromosome-wide / chromosome-pair matrices
@@ -265,7 +263,7 @@ def collect_candidate_patches(cool_path, candidates, expected_values, out_dir,
     candidates : dict
         Output of iter_cooler_scan_candidates.
     expected_values : dict
-        expected_values[res][chrom] for cis normalization.
+        expected_values[res][chrom] for normalization.
     out_dir : str
     balance : str
     radius : int
@@ -288,7 +286,10 @@ def collect_candidate_patches(cool_path, candidates, expected_values, out_dir,
         for chrom_pair in candidates[res]:
             chrom1, chrom2 = chrom_pair
             M = clr.matrix(balance=balance, sparse=True).fetch(chrom1, chrom2).tocsr()
-            exp = expected_values[res][chrom1] if chrom1 == chrom2 else None
+            if chrom1 == chrom2:
+                exp = expected_intra[res][chrom1]
+            else:
+                exp = expected_inter[res][(chrom1, chrom2)]
 
             for abs_i, abs_j, score in candidates[res][chrom_pair]:
                 if chrom1 == chrom2:
