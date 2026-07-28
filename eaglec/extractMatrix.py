@@ -1,6 +1,6 @@
 import cooler, os, logging, joblib
 import numpy as np
-from eaglec.utilities import distance_normaize_core, entropy
+from eaglec.utilities import distance_normaize_core
 from joblib import Parallel, delayed
 
 log = logging.getLogger(__name__)
@@ -14,8 +14,7 @@ def check_sparsity(M):
     else:
         return True
 
-def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
-                        entropy_cutoff, cachefolder):
+def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder):
 
     uri = '{0}::resolutions/{1}'.format(mcool, res)
     clr = cooler.Cooler(uri)
@@ -46,21 +45,17 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
             for i in range(txi.size):
                 x = txi[i]
                 y = tyi[i]
-                window = vvv[i].astype(exp.dtype)
+                window = vvv[i]
                 window[np.isnan(window)] = 0
                 
                 if not check_sparsity(window):
                     continue
                 
                 if c1 == c2:
+                    window = window.astype(exp.dtype)
                     window = distance_normaize_core(window, exp, x, y, w)
                 else:
                     window = window / exp
-
-                if entropy_cutoff < 1:
-                    score = entropy(window, 11, 4)
-                    if score > entropy_cutoff:
-                        continue
 
                 window = np.log1p(window)
                 data.append((window, (c1, x, c2, y, res)))
@@ -91,7 +86,7 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
             for i in range(txi.size):
                 x = txi[i]
                 y = tyi[i]
-                window = vvv[i].astype(exp.dtype)
+                window = vvv[i]
                 window[np.isnan(window)] = 0
 
                 nonzero = window[window.nonzero()]   
@@ -99,17 +94,13 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
                     continue
                 
                 if c1 == c2:
+                    window = vvv[i].astype(exp.dtype)
                     window = distance_normaize_core(window, exp, x, y, w)
                 else:
                     window = window / exp
 
-                if entropy_cutoff < 1:
-                    score = entropy(window, 3, 4)
-                    if score > entropy_cutoff:
-                        continue
-
                 window = np.log1p(window)
-                window_full = np.random.random((31, 31)) * window[window>0].min()
+                window_full = np.zeros((31, 31))
                 window_full[8:23, 8:23] = window
                 data.append((window_full, (c1, x, c2, y, res)))
             
@@ -122,18 +113,17 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
 
 
 def collect_images(mcool, by_res, expected_values_intra, expected_values_inter, balance, cachefolder,
-                   w=15, entropy_cutoff=0.9, nproc=8):
+                   w=15, nproc=8):
 
     queue = []
     for res in by_res:
         for c1, c2 in by_res[res]:
             if c1 == c2:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, expected_values_intra[res][c1], w, entropy_cutoff,
-                              cachefolder))
+                              balance, expected_values_intra[res][c1], w, cachefolder))
             else:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, expected_values_inter[res][(c1, c2)], w, entropy_cutoff, cachefolder))
+                              balance, expected_values_inter[res][(c1, c2)], w, cachefolder))
     
     results = Parallel(n_jobs=nproc)(delayed(collect_images_core)(*i) for i in queue)
     total_n = 0

@@ -4,7 +4,6 @@ import logging, cooler, os, joblib
 import numpy as np
 import scipy.sparse as sp
 from collections import defaultdict
-from eaglec.utilities import image_normalize
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +115,9 @@ def iter_csr_tiles(M, tile_size=2048, k=21, exp=None, upper_triangular_only=Fals
 
             block_dense = block.toarray().astype(np.float32, copy=False)
             block_dense = np.nan_to_num(block_dense, nan=0.0, posinf=0.0, neginf=0.0)
+            if block_dense.sum() == 0:
+                continue
+            
             block_norm = block_normalize(block_dense, exp, R0, C0)
 
             if any((pad_top, pad_bottom, pad_left, pad_right)):
@@ -249,31 +251,11 @@ def check_sparsity(patch, margin=5, min_nonzero=10):
 
     return np.count_nonzero(sub) >= min_nonzero
 
-def collect_candidate_patches(cool_path, candidates, expected_intra,expected_inter, out_dir,
+def collect_candidate_patches(cool_path, candidates, expected_intra, expected_inter, out_dir,
                               balance, radius=15, chunk_size=10000):
     """
     Re-extract centered patches from full chromosome-wide / chromosome-pair matrices
-    using candidates organized as:
 
-        candidates[res][(chrom1, chrom2)] = [(abs_i, abs_j, score), ...]
-
-    Parameters
-    ----------
-    cool_path : str
-    candidates : dict
-        Output of iter_cooler_scan_candidates.
-    expected_values : dict
-        expected_values[res][chrom] for normalization.
-    out_dir : str
-    balance : str
-    radius : int
-        radius=15 gives 31x31 patches.
-    chunk_size : int
-
-    Returns
-    -------
-    patch_count : int
-        Number of patches collected.
     """
     collect_items = []
     patch_count = 0

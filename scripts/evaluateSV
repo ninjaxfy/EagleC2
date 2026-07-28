@@ -1,4 +1,4 @@
-#!/public/home/feiyang/software/miniforge3/envs/tensorflow/bin/python3.11
+#!/usr/bin/env python
 
 ## Required modules
 import argparse, sys, logging, eaglec, os, time, tempfile
@@ -203,7 +203,7 @@ def main():
         
         # collect images
         total_n = collect_images(args.mcool, by_res, expected_values_intra, expected_values_inter, balance, cache_folder,
-                                 w=15, entropy_cutoff=1, nproc=args.nproc)
+                                 w=15, nproc=args.nproc)
         logger.info(f"Totally collected {total_n} images for evaluation.")
         # load models
         logger.info(f"Loading pre-trained models from: {args.model_path}")

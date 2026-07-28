@@ -176,15 +176,15 @@ def run():
         logger.info('Scanning genome using FCN ...')
         fcn_model = load_fcn_model()
         candidates, count = iter_cooler_scan_candidates(
-            cool_path=mcool_path,
+            cool_path=args.mcool,
             resolutions=scan_resolutions,
             chroms=chroms,
             expected_intra=expected_values_intra,
             expected_inter=expected_values_inter,
             balance=balance,
             base_fcn=fcn_model,
-            tile_size=tile_size,
-            cutoff=candidate_cutoff
+            tile_size=args.tile_size,
+            cutoff=args.candidate_cutoff
         )
         logger.info('Totally detected {0} candidates'.format(count))
 
@@ -225,7 +225,8 @@ def run():
             models,
             args.mcool,
             balance,
-            exp=expected_values,
+            expected_intra=expected_values_intra,
+            expected_inter=expected_values_inter,
             ref_gaps=gaps,
             cache_folder=cache_folder,
             baseline_prob=args.sv_cutoff

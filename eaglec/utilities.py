@@ -123,7 +123,7 @@ def calculate_expected_intra(clr, chroms, balance, max_dis, nproc=4,
     diag_sums['genome'] = np.zeros(max_dis+1)
     pixel_nums['genome'] = np.zeros(max_dis+1)
 
-    results = Parallel(n_jobs=nproc)(delayed(calculate_expected_core)(*i) for i in queue)
+    results = Parallel(n_jobs=nproc)(delayed(calculate_expected_intra_core)(*i) for i in queue)
     for i in range(max_dis+1):
         nume = 0 # genome-wide aggregation
         denom = 0

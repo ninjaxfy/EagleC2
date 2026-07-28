@@ -3,8 +3,7 @@ import numpy as np
 import tensorflow as tf
 from collections import defaultdict
 from sklearn.cluster import dbscan
-from eaglec.utilities import distance_normaize_core, image_normalize, \
-    get_queue, dict2list, list2dict
+from eaglec.utilities import distance_normaize_core, get_queue, dict2list, list2dict
 
 # load models that directly output probabilities
 def load_models(root_folder):
@@ -291,8 +290,8 @@ def check_gaps_and_bounds(sv_list, ref_gaps):
     
     return out
 
-def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gaps,
-                       cache_folder, w=15, baseline_prob=0.2):
+def refine_predictions(by_res, resolutions, models, mcool, balance, expected_intra, expected_inter,
+                       ref_gaps, cache_folder, w=15, baseline_prob=0.2):
 
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)
@@ -341,15 +340,17 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
                             continue
                         M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
                         M[np.isnan(M)] = 0
-                        M = M.astype(exp[qr][c1].dtype)
 
                         if M.max() == M.min():
                             continue
 
                         if c1 == c2:
-                            M = distance_normaize_core(M, exp[qr][c1], x, y, w)
-                        
-                        M = image_normalize(M)
+                            M = M.astype(expected_intra[qr][c1].dtype)
+                            M = distance_normaize_core(M, expected_intra[qr][c1], x, y, w)
+                        else:
+                            M = M / expected_inter[qr][(c1, c2)]
+
+                        M = np.log1p(M)
                         data.append((M, (c1, x*qr, c2, y*qr), k))
                         count += 1
                         if len(data) > batch_size:
