@@ -236,20 +236,12 @@ def distance_normaize_core(sub, exp, x, y, w):
 
     D = y_arr - x_arr
     D = np.abs(D)
-    min_dis = D.min()
-    max_dis = D.max()
-    if max_dis >= exp.size:
-        return sub
-    else:
-        exp_sub = np.zeros(sub.shape)
-        for d in range(min_dis, max_dis+1):
-            xi, yi = np.where(D==d)
-            for i, j in zip(xi, yi):
-                exp_sub[i, j] = exp[d]
-            
-        normed = sub / exp_sub
+    D = np.minimum(D, exp_by_dis.size - 1)
+    
+    exp_sub = exp[D]        
+    normed = sub / exp_sub
 
-        return normed
+    return normed
     
 @njit
 def image_normalize(arr_2d):
