@@ -82,7 +82,7 @@ def get_valid_cols(clr, c, balance):
         marg = np.array(M.sum(axis=0)).ravel()
         logNzMarg = np.log(marg[marg>0])
         med_logNzMarg = np.median(logNzMarg)
-        dev_logNzMarg = cooler.balance.mad(logNzMarg)
+        dev_logNzMarg = cooler.util.mad(logNzMarg)
         cutoff = np.exp(med_logNzMarg - 30 * dev_logNzMarg)
         marg[marg<cutoff] = 0
         valid_cols = marg > 0
@@ -236,20 +236,12 @@ def distance_normaize_core(sub, exp, x, y, w):
 
     D = y_arr - x_arr
     D = np.abs(D)
-    min_dis = D.min()
-    max_dis = D.max()
-    if max_dis >= exp.size:
-        return sub
-    else:
-        exp_sub = np.zeros(sub.shape)
-        for d in range(min_dis, max_dis+1):
-            xi, yi = np.where(D==d)
-            for i, j in zip(xi, yi):
-                exp_sub[i, j] = exp[d]
-            
-        normed = sub / exp_sub
+    D = np.minimum(D, exp.size - 1)
+    
+    exp_sub = exp[D]        
+    normed = sub / exp_sub
 
-        return normed
+    return normed
     
 @njit
 def image_normalize(arr_2d):
