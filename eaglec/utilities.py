@@ -237,8 +237,16 @@ def distance_normaize_core(sub, exp, x, y, w):
     D = y_arr - x_arr
     D = np.abs(D)
     D = np.minimum(D, exp.size - 1)
+
+    min_dis = D.min()
+    max_dis = D.max()
     
-    exp_sub = exp[D]        
+    exp_sub = np.zeros(sub.shape)
+    for d in range(min_dis, max_dis+1):
+        xi, yi = np.where(D==d)
+        for i, j in zip(xi, yi):
+            exp_sub[i, j] = exp[d]
+        
     normed = sub / exp_sub
 
     return normed
