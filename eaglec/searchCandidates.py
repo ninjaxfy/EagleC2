@@ -53,8 +53,6 @@ def block_normalize(block_dense, exp, R0, C0):
     exp = np.asarray(exp, dtype=np.float32)
 
     if exp.ndim == 0:
-        if not np.isfinite(exp) or exp <= 0:
-            raise ValueError(f"Invalid scalar expected value: {exp}")
         norm = block_dense / exp
     elif exp.ndim == 1:
         norm = distance_normalize_block(block_dense, exp, R0, C0)
@@ -173,13 +171,17 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra, 
         for i in range(len(chroms)-1):
             for j in range(i+1, len(chroms)):
                 chrom1, chrom2 = chroms[i], chroms[j]
+                exp = expected_inter[res][(chrom1, chrom2)]
+                if not np.isfinite(exp) or exp <= 0:
+                    continue
+                
                 log.info('  Scanning {0} vs {1} at resolution {2} ...'.format(chrom1, chrom2, res))
                 M = clr.matrix(balance=balance, sparse=True).fetch(chrom1, chrom2).tocsr()
                 for r0, r1, c0, c1, block_norm, rr0, rr1, cc0, cc1 in iter_csr_tiles(
                     M,
                     tile_size=tile_size,
                     k=k,
-                    exp=expected_inter[res][(chrom1, chrom2)],
+                    exp=exp,
                     upper_triangular_only=False
                 ):
                     x2d = tf.convert_to_tensor(block_norm, dtype=tf.float32)
@@ -194,7 +196,6 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra, 
                         count += 1
     
     return candidates, count
-
 
 def extract_centered_patch_from_matrix(M, center_i, center_j, radius=15, exp=None,
                                        pad_value=0.0):
