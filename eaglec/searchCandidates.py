@@ -4,8 +4,28 @@ import logging, cooler, os, joblib
 import numpy as np
 import scipy.sparse as sp
 from collections import defaultdict
+from eaglec.utilities import image_normalize
 
 log = logging.getLogger(__name__)
+
+
+@tf.function(reduce_retracing=True)
+def local_minmax_normalize_2d(x2d, k=21, eps=1e-6):
+    """
+    x2d: tf.Tensor (H, W), float32
+    returns: tf.Tensor (H, W) normalized to ~[0,1] by local k×k min/max
+    """
+    x = tf.cast(x2d, tf.float32)
+    x4 = x[None, :, :, None]  # (1,H,W,1)
+
+    # local max
+    local_max = tf.nn.max_pool2d(x4, ksize=k, strides=1, padding="SAME")[0, :, :, 0]
+    # local min via max_pool on -x
+    local_min = -tf.nn.max_pool2d(-x4, ksize=k, strides=1, padding="SAME")[0, :, :, 0]
+
+    denom = tf.maximum(local_max - local_min, eps)
+    y = (x - local_min) / denom
+    return tf.clip_by_value(y, 0.0, 1.0)
 
 @tf.function(reduce_retracing=True)
 def fcn_sv_probability_map(base_fcn, x2d_norm, neg_index=6):
@@ -20,6 +40,7 @@ def fcn_sv_probability_map(base_fcn, x2d_norm, neg_index=6):
     p_non = probs[..., neg_index]                # (1,H,W)
     p_sv = 1.0 - p_non
     return p_sv[0]                               # (H,W)
+
 
 def distance_normalize_block(block_dense, exp, R0, C0):
     """
@@ -44,29 +65,25 @@ def distance_normalize_block(block_dense, exp, R0, C0):
 
     return out
 
-def block_normalize(block_dense, exp, R0, C0):
+
+def block_normalize(block_dense, exp, R0, C0, k=21):
     """
-    Normalize a contact block by expected values and apply log1p.
-
-    exp can be a scalar (trans) or a 1D distance-dependent array (cis).
+    Apply optional cis O/E normalization followed by local min-max normalization.
     """
-    exp = np.asarray(exp, dtype=np.float32)
+    if exp is not None:
+        exp = np.asarray(exp, dtype=np.float32)
+        block_dense = distance_normalize_block(block_dense, exp, R0, C0)
 
-    if exp.ndim == 0:
-        norm = block_dense / exp
-    elif exp.ndim == 1:
-        norm = distance_normalize_block(block_dense, exp, R0, C0)
-    else:
-        raise ValueError(f"Expected scalar or 1D expected values, got shape {exp.shape}")
+    block_tf = tf.convert_to_tensor(block_dense, dtype=tf.float32)
+    return local_minmax_normalize_2d(block_tf, k=k).numpy()
 
-    return np.log1p(norm)
 
 def iter_csr_tiles(M, tile_size=2048, k=21, exp=None, upper_triangular_only=False):
     """
     Traverse a CSR sparse matrix in tiles.
 
     For each tile core [r0:r1, c0:c1], extract a halo-extended block,
-    normalize it using expected values followed by log1p, and pad missing
+    apply optional distance normalization followed by local min-max normalization, and pad missing
     halo regions with zeros.
 
     Yields:
@@ -113,7 +130,7 @@ def iter_csr_tiles(M, tile_size=2048, k=21, exp=None, upper_triangular_only=Fals
             if block_dense.sum() == 0:
                 continue
             
-            block_norm = block_normalize(block_dense, exp, R0, C0)
+            block_norm = block_normalize(block_dense, exp, R0, C0, k=k)
 
             if any((pad_top, pad_bottom, pad_left, pad_right)):
                 block_norm = np.pad(
@@ -137,7 +154,7 @@ def iter_csr_tiles(M, tile_size=2048, k=21, exp=None, upper_triangular_only=Fals
                 rr0, rr1, cc0, cc1,
             )
 
-def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra, expected_inter,
+def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_values,
                                 balance, base_fcn, tile_size=2048, k=21, cutoff=0.3):
     
     candidates = {}
@@ -153,7 +170,7 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra, 
                 M,
                 tile_size=tile_size,
                 k=k,
-                exp=expected_intra[res][chrom],
+                exp=expected_values[res][chrom],
                 upper_triangular_only=True
             ):
                 x2d = tf.convert_to_tensor(block_norm, dtype=tf.float32)
@@ -171,9 +188,6 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra, 
         for i in range(len(chroms)-1):
             for j in range(i+1, len(chroms)):
                 chrom1, chrom2 = chroms[i], chroms[j]
-                exp = expected_inter[res][(chrom1, chrom2)]
-                if not np.isfinite(exp) or exp <= 0:
-                    continue
                 
                 log.info('  Scanning {0} vs {1} at resolution {2} ...'.format(chrom1, chrom2, res))
                 M = clr.matrix(balance=balance, sparse=True).fetch(chrom1, chrom2).tocsr()
@@ -181,7 +195,7 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_intra, 
                     M,
                     tile_size=tile_size,
                     k=k,
-                    exp=exp,
+                    exp=None,
                     upper_triangular_only=False
                 ):
                     x2d = tf.convert_to_tensor(block_norm, dtype=tf.float32)
@@ -210,8 +224,8 @@ def extract_centered_patch_from_matrix(M, center_i, center_j, radius=15, exp=Non
         Absolute bin coordinates within M.
     radius : int
         Patch radius. radius=15 gives a 31x31 patch.
-    exp : scalar or 1D np.ndarray
-          Expected value used for block normalization.
+    exp : 1D np.ndarray or None
+        Expected vector for cis matrices. None for trans.
     pad_value : float
         Value used when patch crosses chromosome boundary.
 
@@ -233,7 +247,10 @@ def extract_centered_patch_from_matrix(M, center_i, center_j, radius=15, exp=Non
     block = M[r0:r1, c0:c1].toarray().astype(np.float32, copy=False)
     block = np.nan_to_num(block, nan=0.0, posinf=0.0, neginf=0.0)
 
-    block = block_normalize(block, exp, r0, c0)
+    if not exp is None:
+        block = distance_normalize_block(block, exp, r0, c0)
+
+    block = image_normalize(block)
 
     out = np.full((out_size, out_size), pad_value, dtype=np.float32)
 
@@ -249,7 +266,7 @@ def check_sparsity(patch, margin=5, min_nonzero=10):
 
     return np.count_nonzero(sub) >= min_nonzero
 
-def collect_candidate_patches(cool_path, candidates, expected_intra, expected_inter, out_dir,
+def collect_candidate_patches(cool_path, candidates, expected_values, out_dir,
                               balance, radius=15, chunk_size=10000):
     """
     Re-extract centered patches from full chromosome-wide / chromosome-pair matrices
@@ -267,9 +284,9 @@ def collect_candidate_patches(cool_path, candidates, expected_intra, expected_in
             chrom1, chrom2 = chrom_pair
             M = clr.matrix(balance=balance, sparse=True).fetch(chrom1, chrom2).tocsr()
             if chrom1 == chrom2:
-                exp = expected_intra[res][chrom1]
+                exp = expected_values[res][chrom1]
             else:
-                exp = expected_inter[res][(chrom1, chrom2)]
+                exp = None
 
             for abs_i, abs_j, score in candidates[res][chrom_pair]:
                 if chrom1 == chrom2:
