@@ -3,17 +3,8 @@ import numpy as np
 import tensorflow as tf
 from collections import defaultdict
 from sklearn.cluster import dbscan
-from eaglec.utilities import distance_normaize_core, get_queue, dict2list, list2dict
-
-# load models that directly output probabilities
-def load_models(root_folder):
-
-    model_paths = glob.glob(os.path.join(root_folder, '*.keras'))
-    models = []
-    for f in model_paths:
-        models.append(tf.keras.models.load_model(f))
-    
-    return models
+from eaglec.utilities import distance_normaize_core, image_normalize, \
+    get_queue, dict2list, list2dict
 
 def load_fcn_model():
 
@@ -101,10 +92,6 @@ def predict(cache_folder, models, ref_gaps, prob_cutoff=0.2, batch_size=256):
         images = np.r_[[d[0] for d in data]]
         info = [d[1] for d in data]
         prob_mean = predict_with_ensemble_models(images, models, batch_size)
-        #images = convert2TF(images, batch_size)
-        #prob_pool = np.stack([model.predict(images) for model in models])
-        #prob_mean = prob_pool.mean(axis=0)[:,:6]
-        
         for i in range(prob_mean.shape[0]):
             res, c1, p1, c2, p2, fcn_score = info[i]
             prob = prob_mean[i]
@@ -162,6 +149,8 @@ def cross_resolution_mapping(by_res):
 
 def remove_redundant_predictions(by_res):
 
+    if not by_res:
+      return {}
     # remove redundant predictions at coarser resolutions
     mapping_table = cross_resolution_mapping(by_res)
     resolutions = sorted(by_res, reverse=True)
@@ -290,9 +279,11 @@ def check_gaps_and_bounds(sv_list, ref_gaps):
     
     return out
 
-def refine_predictions(by_res, resolutions, models, mcool, balance, expected_intra, expected_inter,
-                       ref_gaps, cache_folder, w=15, baseline_prob=0.2):
+def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gaps,
+                       cache_folder, w=15, baseline_prob=0.2):
 
+    if not by_res:
+      return []
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)
     if res_queue[-1] == res_ref[-1]:
@@ -340,17 +331,15 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, expected_int
                             continue
                         M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
                         M[np.isnan(M)] = 0
+                        M = M.astype(exp[qr][c1].dtype)
 
                         if M.max() == M.min():
                             continue
 
                         if c1 == c2:
-                            M = M.astype(expected_intra[qr][c1].dtype)
-                            M = distance_normaize_core(M, expected_intra[qr][c1], x, y, w)
-                        else:
-                            M = M / expected_inter[qr][(c1, c2)]
-
-                        M = np.log1p(M)
+                            M = distance_normaize_core(M, exp[qr][c1], x, y, w)
+                        
+                        M = image_normalize(M)
                         data.append((M, (c1, x*qr, c2, y*qr), k))
                         count += 1
                         if len(data) > batch_size:
